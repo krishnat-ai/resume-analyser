@@ -1,0 +1,74 @@
+[
+  {
+    "ContainingType": "ResumeAnalyzer.API.Controllers.ResumeParserController",
+    "Method": "GetAllResumeAnalyses",
+    "RelativePath": "api/ResumeParser",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [],
+    "ReturnTypes": [
+      {
+        "Type": "System.Collections.Generic.List\u00601[[ResumeAnalyzer.API.Models.ResumeAnalysis, ResumeAnalyzer.API, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null]]",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "ResumeAnalyzer.API.Controllers.ResumeParserController",
+    "Method": "GetResumeAnalysis",
+    "RelativePath": "api/ResumeParser/{id}",
+    "HttpMethod": "GET",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "id",
+        "Type": "System.Int32",
+        "IsRequired": true
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "ResumeAnalyzer.API.Models.ResumeAnalysis",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  },
+  {
+    "ContainingType": "ResumeAnalyzer.API.Controllers.ResumeParserController",
+    "Method": "ParseResume",
+    "RelativePath": "api/ResumeParser/parse",
+    "HttpMethod": "POST",
+    "IsController": true,
+    "Order": 0,
+    "Parameters": [
+      {
+        "Name": "file",
+        "Type": "Microsoft.AspNetCore.Http.IFormFile",
+        "IsRequired": false
+      }
+    ],
+    "ReturnTypes": [
+      {
+        "Type": "ResumeAnalyzer.API.Models.ResumeAnalysis",
+        "MediaTypes": [
+          "text/plain",
+          "application/json",
+          "text/json"
+        ],
+        "StatusCode": 200
+      }
+    ]
+  }
+]

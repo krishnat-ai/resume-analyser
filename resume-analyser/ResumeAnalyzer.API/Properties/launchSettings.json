@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "ResumeAnalyzer.API": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "applicationUrl": "https://localhost:58933;http://localhost:58934"
+    }
+  }
+}

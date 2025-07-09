@@ -1,0 +1,212 @@
+﻿using ResumeAnalyzer.API.Data;
+using ResumeAnalyzer.API.Models;
+using Microsoft.EntityFrameworkCore;
+using System.Text.RegularExpressions;
+using UglyToad.PdfPig;
+using Xceed.Words.NET;
+
+namespace ResumeAnalyzer.API.Services
+{
+    public class ResumeParserService : IResumeParserService
+    {
+        private readonly ApplicationDbContext _context;
+
+        public ResumeParserService(ApplicationDbContext context)
+        {
+            _context = context;
+        }
+
+        public async Task<ResumeAnalysis> ParseResumeAsync(IFormFile file)
+        {
+            string text = await ExtractTextFromFileAsync(file);
+
+            // Use regex to extract fields
+            string email = Regex.Match(text, @"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}").Value;
+            string phone = Regex.Match(text, @"(\+\d{1,3}[- ]?)?\d{10,}").Value;
+            string name = ExtractName(text);
+            var skills = ExtractSkills(text);
+            var education = ExtractEducation(text);
+            var experience = ExtractExperience(text);
+
+            var analysis = new ResumeAnalysis
+            {
+                Name = name,
+                Email = email,
+                Phone = phone,
+                Location = "", // Could use NLP/geocoding for better extraction
+                LinkedIn = ExtractLinkedIn(text),
+                Skills = skills,
+                Certifications = ExtractCertifications(text),
+                WorkExperience = experience,
+                Education = education
+            };
+
+            // _context.ResumeAnalyses.Add(analysis);
+            // await _context.SaveChangesAsync();
+
+            return analysis;
+        }
+
+        private async Task<string> ExtractTextFromFileAsync(IFormFile file)
+        {
+            var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+            if (ext == ".pdf")
+            {
+                using var stream = file.OpenReadStream();
+                using var pdf = PdfDocument.Open(stream);
+                var text = string.Join("\n", pdf.GetPages().Select(p => p.Text));
+                return text;
+            }
+            else if (ext == ".docx")
+            {
+                using var stream = file.OpenReadStream();
+                using var ms = new MemoryStream();
+                await stream.CopyToAsync(ms);
+                using var doc = DocX.Load(ms);
+                return doc.Text;
+            }
+            else if (ext == ".doc")
+            {
+                // For .doc, you may use a library like NPOI or convert to .docx
+                throw new NotSupportedException(".doc format not supported in this demo. Please use PDF or DOCX.");
+            }
+            else
+            {
+                throw new NotSupportedException("Unsupported file type.");
+            }
+        }
+
+        private string ExtractName(string text)
+        {
+            // Enhanced: Skip lines with emails, phones, or section headers
+            var lines = text.Split('\n');
+            foreach (var line in lines)
+            {
+                var trimmed = line.Trim();
+                if (string.IsNullOrWhiteSpace(trimmed)) continue;
+                if (Regex.IsMatch(trimmed, @"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}")) continue;
+                if (Regex.IsMatch(trimmed, @"(Skills|Education|Experience|Certifications|Summary|Contact)", RegexOptions.IgnoreCase)) continue;
+                if (Regex.IsMatch(trimmed, @"(\+\d{1,3}[- ]?)?\d{10,}")) continue;
+                // Likely a name if it has 2-4 words, each starting with uppercase
+                if (Regex.IsMatch(trimmed, @"^([A-Z][a-zA-Z'-]+[ ]?){2,4}$"))
+                    return trimmed;
+            }
+            return lines.FirstOrDefault(l => !string.IsNullOrWhiteSpace(l))?.Trim() ?? "";
+        }
+
+        private List<string> ExtractSkills(string text)
+        {
+            // Enhanced: Only extract keywords, not sentences
+            var match = Regex.Match(text, @"Skills[\s:]*([\s\S]+?)(\n\n|Education|Experience|Certifications|$)", RegexOptions.IgnoreCase);
+            if (match.Success)
+            {
+                var skillsText = match.Groups[1].Value;
+                var skills = Regex.Split(skillsText, @",|\n|\r").Select(s => s.Trim())
+                    .Where(s => s.Length > 1 && s.Length < 40 && !s.Contains(" ", StringComparison.Ordinal) && !s.EndsWith(".")).ToList();
+                // If no single-word skills, relax filter
+                if (skills.Count == 0)
+                {
+                    skills = Regex.Split(skillsText, @",|\n|\r").Select(s => s.Trim())
+                        .Where(s => s.Length > 1 && s.Length < 40 && !s.EndsWith(".")).ToList();
+                }
+                return skills;
+            }
+            return new List<string>();
+        }
+
+        private List<Education> ExtractEducation(string text)
+        {
+            // Enhanced: Parse degree, school, year
+            var match = Regex.Match(text, @"Education[\s:]*([\s\S]+?)(\n\n|Skills|Experience|Certifications|$)", RegexOptions.IgnoreCase);
+            var list = new List<Education>();
+            if (match.Success)
+            {
+                var eduText = match.Groups[1].Value;
+                var lines = eduText.Split('\n');
+                foreach (var line in lines)
+                {
+                    var trimmed = line.Trim();
+                    if (trimmed.Length < 3) continue;
+                    // Try to extract degree, school, year
+                    var degreeMatch = Regex.Match(trimmed, @"(?<degree>Bachelor|Master|PhD|Associate|Diploma|Certificate)[^,\n]*", RegexOptions.IgnoreCase);
+                    var yearMatch = Regex.Match(trimmed, @"(19|20)\\d{2}");
+                    string degree = degreeMatch.Success ? degreeMatch.Value.Trim() : trimmed;
+                    string year = yearMatch.Success ? yearMatch.Value : "";
+                    string school = "";
+                    // Try to extract school after comma
+                    var parts = trimmed.Split(',');
+                    if (parts.Length > 1)
+                        school = parts[1].Trim();
+                    list.Add(new Education { Degree = degree, School = school, Year = year });
+                }
+            }
+            return list;
+        }
+
+        private List<WorkExperience> ExtractExperience(string text)
+        {
+            // Enhanced: Parse title, company, duration
+            var match = Regex.Match(text, @"Experience[\s:]*([\s\S]+?)(\n\n|Skills|Education|Certifications|$)", RegexOptions.IgnoreCase);
+            var list = new List<WorkExperience>();
+            if (match.Success)
+            {
+                var expText = match.Groups[1].Value;
+                var lines = expText.Split('\n');
+                foreach (var line in lines)
+                {
+                    var trimmed = line.Trim();
+                    if (trimmed.Length < 3) continue;
+                    // Try to extract title, company, duration
+                    var durationMatch = Regex.Match(trimmed, @"(\d{4}\s*-\s*\d{4}|\d{4}\s*-\s*Present|\d{2}/\d{4}\s*-\s*\d{2}/\d{4}|\d{4})");
+                    string duration = durationMatch.Success ? durationMatch.Value : "";
+                    string title = trimmed;
+                    string company = "";
+                    // Try to extract company after comma
+                    var parts = trimmed.Split(',');
+                    if (parts.Length > 1)
+                    {
+                        title = parts[0].Trim();
+                        company = parts[1].Trim();
+                    }
+                    list.Add(new WorkExperience { Title = title, Company = company, Duration = duration, Description = "" });
+                }
+            }
+            return list;
+        }
+
+        private List<string> ExtractCertifications(string text)
+        {
+            // Look for a "Certifications" section
+            var match = Regex.Match(text, @"Certifications[\s:]*([\s\S]+?)(\n\n|Skills|Education|Experience|$)", RegexOptions.IgnoreCase);
+            if (match.Success)
+            {
+                var certText = match.Groups[1].Value;
+                return Regex.Split(certText, @",|\n|\r").Select(s => s.Trim()).Where(s => s.Length > 1).ToList();
+            }
+            return new List<string>();
+        }
+
+        private string ExtractLinkedIn(string text)
+        {
+            var match = Regex.Match(text, @"linkedin\.com/in/[a-zA-Z0-9-_]+", RegexOptions.IgnoreCase);
+            return match.Success ? match.Value : "";
+        }
+
+        public async Task<ResumeAnalysis?> GetResumeAnalysisAsync(int id)
+        {
+            return await _context.ResumeAnalyses
+                .Include(r => r.WorkExperience)
+                .Include(r => r.Education)
+                .FirstOrDefaultAsync(r => r.Id == id);
+        }
+
+        public async Task<List<ResumeAnalysis>> GetAllResumeAnalysesAsync()
+        {
+            return await _context.ResumeAnalyses
+                .Include(r => r.WorkExperience)
+                .Include(r => r.Education)
+                .OrderByDescending(r => r.CreatedAt)
+                .ToListAsync();
+        }
+    }
+} 
